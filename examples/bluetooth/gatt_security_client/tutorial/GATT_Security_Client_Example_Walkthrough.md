@@ -12,34 +12,34 @@ This document only includes a description of the security aspects of the GATT Cl
 
 The example registers one Application Profile defined as:
 
-```
+```c
 #define PROFILE_NUM 1
 #define PROFILE_A_APP_ID 0
 ```
 
 The registration takes place in the ``app_main()`` function by using the ``esp_ble_gattc_app_register()`` function:
 
-```
+```c
 …
 ret = esp_ble_gattc_app_register(PROFILE_A_APP_ID);
-    if (ret){
-        ESP_LOGE(GATTC_TAG, "%s gattc app register error, error code = %x\n", __func__, ret);
-    }
+if (ret){
+	ESP_LOGE(GATTC_TAG, "%s gattc app register error, error code = %x\n", __func__, ret);
+}
 …
 ```
 
 The Application Profile registration triggers an ``ESP_GATTC_REG_EVT`` event which is managed by the ``esp_gattc_cb()`` callback function and forwarded to the Profile A event handler ``gattc_profile_event_handler()``. Here, the event is used to configure the local privacy of the slave device by using the ``esp_ble_gap_config_local_privacy()`` function.
 
-```
+```c
 case ESP_GATTC_REG_EVT:
-        ESP_LOGI(GATTC_TAG, "REG_EVT");
-        esp_ble_gap_config_local_privacy(true);
-        break;
+    ESP_LOGI(GATTC_TAG, "REG_EVT");
+    esp_ble_gap_config_local_privacy(true);
+    break;
 ```
 
 This function is a Bluedroid API call for configuring default privacy settings on the local device. Once the privacy is set, an ``ESP_GAP_BLE_SET_LOCAL_PRIVACY_COMPLETE_EVT`` is triggered which is used to set scan parameters and start scanning for nearby peripherals:
 
-```
+```c
     case ESP_GAP_BLE_SET_LOCAL_PRIVACY_COMPLETE_EVT:
         if (param->local_privacy_cmpl.status != ESP_BT_STATUS_SUCCESS){
             ESP_LOGE(GATTC_TAG, "config local privacy failed, error code =%x", param->local_privacy_cmpl.status);
@@ -70,22 +70,23 @@ This function is a Bluedroid API call for configuring default privacy settings o
 
 The rest of the configuration for the GATT Client is performed normally in the same way as the regular GATT Client example. That is, the client finds a device of interest and opens a connection. At this point the GATT client, which is usually the master, initiates the pairing process by sending a Pairing Request to the slave device. This request should be acknowledged with a Pairing Response. The Pairing process is implemented automatically by the stack and no extra user configuration is needed. However, depending on the I/O capabilities of both devices, a passkey might be generated on the ESP32 which is presented to the user with the ``ESP_GAP_BLE_PASSKEY_NOTIF_EVT``:
 
-```
- case ESP_GAP_BLE_PASSKEY_NOTIF_EVT:  ///the app will receive this evt when the IO  has Output capability and the peer device IO has Input capability.
-        ///show the passkey number to the user to input it in the peer deivce.
-        ESP_LOGE(GATTS_TABLE_TAG, "The passkey Notify number:%d", param->ble_security.key_notif.passkey);
-        break;
+```c
+ case ESP_GAP_BLE_PASSKEY_NOTIF_EVT:  
+ ///the app will receive this evt when the IO  has Output capability and the peer device IO has Input capability.
+ ///show the passkey number to the user to input it in the peer deivce.
+      ESP_LOGE(GATTS_TABLE_TAG, "The passkey Notify number:%d", param->ble_security.key_notif.passkey);
+      break;
 
 ```
 The combination of input and output capabilities that determine which algorithm is used are:
 
-  | Display Only | Display Yes/No|Keyboard Only|No Input No Output|Keyboard Display|
---------------------|------------------|-----------------------|--------------------|------------------|-----------------------|
-Display Only | Just Works| Just Works|Passkey Entry|Just Works|Passkey Entry|
-Display Yes/No |Just Works|Just Works|Passkey Entry|Just Works|Passkey Entry|
-Keyboard Only |Passkey Entry |Passkey Entry|Passkey Entry|Just Works|Passkey Entry|
-No Input No Output| Just Works|Just Works|Just Works|Just Works|Just Works|
-Keyboard Display|Passkey Entry|Passkey Entry|Passkey Entry|Just Works|Passkey Entry|
+|                        | Display Only   | Display Yes/No | Keyboard Only  | No Input No Output | Keyboard Display|
+| :--                    | :------------- | :------------- | :------------- | :----------------- | :-------------- |
+| **Display Only**       | Just Works     | Just Works     | Passkey Entry  | Just Works         | Passkey Entry   |
+| **Display Yes/No**     | Just Works     | Just Works     | Passkey Entry  | Just Works         | Passkey Entry   |
+| **Keyboard Only**      | Passkey Entry  | Passkey Entry  | Passkey Entry  | Just Works         | Passkey Entry   |
+| **No Input No Output** | Just Works     | Just Works     | Just Works     | Just Works         | Just Works      |
+| **Keyboard Display**   | Passkey Entry  | Passkey Entry  | Passkey Entry  | Just Works         | Passkey Entry   |
 
 In the Just Works method, the Temporary Key is set to 0. This is a practical way to authenticate devices when no display or keyboards are attached to them, so that there is no way to show or enter a passkey. However, if the ESP32 GATT Client has an LCD, it can present the passkey generated locally so that the user can input it on the other peer device, or if the GATT Client has a keyboard, it can input the passkey generated by the other peer device. Additionally, a numeric comparison can be performed if both devices have a display and yes/no confirm buttons and LE Secure Connections are used, that way an independently generated passkey is displayed on both devices and the user manually checks that both 6-digit confirmation values match.
 
@@ -93,25 +94,24 @@ In the Just Works method, the Temporary Key is set to 0. This is a practical way
 
 When the client connects to a remote device and the pairing is done successfully, the initiator and responder keys are exchanged. For each key exchange message, an ``ESP_GAP_BLE_KEY_EVT`` event is triggered which can be used to print the type of key received:
 
-```
+```c
 case ESP_GAP_BLE_KEY_EVT:
-        //shows the ble key info share with peer device to the user.
-        ESP_LOGI(GATTS_TABLE_TAG, "key type = %s", esp_key_type_to_str(param->ble_security.ble_key.key_type));
-        break;       
+    //shows the ble key info share with peer device to the user.
+    ESP_LOGI(GATTS_TABLE_TAG, "key type = %s", esp_key_type_to_str(param->ble_security.ble_key.key_type));
+    break;       
 ```
 
 When the keys are exchanged successfully, the pairing process is completed and encryption of payload data can be started using the AES-128 engine. This triggers an ``ESP_GAP_BLE_AUTH_CMPL_EVT`` event which is used to print information:
 
-```
+```c
 case ESP_GAP_BLE_AUTH_CMPL_EVT: {
-        esp_bd_addr_t bd_addr;
-        memcpy(bd_addr, param->ble_security.auth_cmpl.bd_addr, sizeof(esp_bd_addr_t));
-        ESP_LOGI(GATTS_TABLE_TAG, "remote BD_ADDR: %08x%04x",\
-                (bd_addr[0] << 24) + (bd_addr[1] << 16) + (bd_addr[2] << 8) + bd_addr[3],
-                (bd_addr[4] << 8) + bd_addr[5]);
-        ESP_LOGI(GATTS_TABLE_TAG, "address type = %d", param->ble_security.auth_cmpl.addr_type);
-        ESP_LOGI(GATTS_TABLE_TAG, "pair status = %s",param->ble_security.auth_cmpl.success ? "success" : "fail");
-        break;
+    esp_bd_addr_t bd_addr;
+    memcpy(bd_addr, param->ble_security.auth_cmpl.bd_addr, sizeof(esp_bd_addr_t));
+    ESP_LOGI(GATTS_TABLE_TAG, "remote BD_ADDR: %08x%04x",\
+    (bd_addr[0] << 24) + (bd_addr[1] << 16) + (bd_addr[2] << 8) + bd_addr[3], (bd_addr[4] << 8) + bd_addr[5]);
+    ESP_LOGI(GATTS_TABLE_TAG, "address type = %d", param->ble_security.auth_cmpl.addr_type);
+    ESP_LOGI(GATTS_TABLE_TAG, "pair status = %s",param->ble_security.auth_cmpl.success ? "success" : "fail");
+    break;
 ```
 
 ## Conclusion
